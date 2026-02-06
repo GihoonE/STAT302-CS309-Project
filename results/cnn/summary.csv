@@ -1,0 +1,5 @@
+setting,n_real,n_synth,best_val,test_acc
+real_100pct,60000,0,0.9925,0.9931
+real_80pct,48000,0,0.9925,0.9916
+real_80pct,48000,0,0.991458,0.993
+real_80pct_plus_synth_20pct,48000,9600,0.97691,0.9903
