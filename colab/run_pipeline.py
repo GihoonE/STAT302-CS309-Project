@@ -13,17 +13,14 @@ Usage (Colab):
 """
 from pathlib import Path
 
-import numpy as np
 import tensorflow as tf
 
 from .datasets_config import DATASETS
 from .data_prep import prepare_ds
 from .cgan import (
-    build_gan_ds,
     build_generator,
     build_discriminator,
     train_cgan,
-    save_fake_images,
     make_noisy_clone,
 )
 from .fid_kid import eval_folder_vs_real, real_ds_to_images_only
@@ -49,21 +46,28 @@ FID_MAX_SAMPLES = 2000
 FID_BATCH = 32
 
 
-def _try_prepare_ds(slug, train_subdir, test_subdir, **kwargs):
-    """Call prepare_ds; if MNIST uses 'train'/'test' and fails, retry with 'Train'/'Test' or vice versa."""
-    try:
-        return prepare_ds(
-            slug,
-            train_subdir=train_subdir,
-            test_subdir=test_subdir,
-            **kwargs,
-        )
-    except FileNotFoundError as e:
-        if train_subdir == "Train":
-            return prepare_ds(slug, train_subdir="train", test_subdir="test", **kwargs)
-        if train_subdir == "train":
-            return prepare_ds(slug, train_subdir="Train", test_subdir="Test", **kwargs)
-        raise e
+def _prepare_ds_for_dataset(cfg, **kwargs):
+    """Explicitly route dataset loading by configured dataset_format and subdirs."""
+    return prepare_ds(
+        cfg["slug"],
+        dataset_format=cfg["dataset_format"],
+        train_subdir=cfg.get("train_subdir", "train"),
+        test_subdir=cfg.get("test_subdir", "test"),
+        **kwargs,
+    )
+
+
+def _build_gan_ds_from_train(train_ds, *, img_size=(64, 64)):
+    """Create cGAN dataset from (image,label) training dataset regardless of source layout."""
+    def to_gan(x, y):
+        x = tf.image.resize(x, img_size)
+        if x.shape[-1] == 1:
+            x = tf.repeat(x, 3, axis=-1)
+        x = tf.cast(x, tf.float32)
+        x = (x / 127.5) - 1.0
+        y = tf.cast(y, tf.int32)
+        return x, y
+    return train_ds.map(to_gan, num_parallel_calls=tf.data.AUTOTUNE).prefetch(tf.data.AUTOTUNE)
 
 
 def show_cgan_samples(fake_epoch_dir, n_show=5, figsize=(12, 3)):
@@ -146,10 +150,8 @@ def run_pipeline_one(
         raise ValueError(f"Unknown dataset_key: {dataset_key}. Choose from {list(DATASETS)}")
 
     cfg = DATASETS[dataset_key]
-    slug = cfg["slug"]
     name = cfg["name"]
-    train_subdir = cfg.get("train_subdir", "train")
-    test_subdir = cfg.get("test_subdir", "test")
+    dataset_format = cfg["dataset_format"]
 
     out_base = Path(out_root) / dataset_key
     out_base.mkdir(parents=True, exist_ok=True)
@@ -165,21 +167,19 @@ def run_pipeline_one(
     # ---------- 1) Data ----------
     if verbose:
         print("[1] Loading data...")
-    train_ds, val_ds, test_ds, class_names, data_dir = _try_prepare_ds(
-        slug,
-        train_subdir=train_subdir,
-        test_subdir=test_subdir,
+    train_ds, val_ds, test_ds, class_names, data_dir, extras = _prepare_ds_for_dataset(
+        cfg,
         img_size=CLS_IMG,
         batch_size=CLS_BATCH,
         val_split=0.2,
     )
     num_classes = len(class_names)
-    train_dir = str(Path(data_dir) / train_subdir)
-    test_dir = str(Path(data_dir) / test_subdir)
+    train_dir = str(Path(data_dir) / cfg.get("train_subdir", "train"))
+    test_dir = str(Path(data_dir) / cfg.get("test_subdir", "test"))
 
     # Ensure RGB for classifier (MNIST etc. may be grayscale)
     def ensure_rgb(x, y):
-        if tf.shape(x)[-1] == 1:
+        if x.shape[-1] == 1:
             x = tf.repeat(x, 3, axis=-1)
         return x, y
     train_ds = train_ds.map(ensure_rgb, num_parallel_calls=tf.data.AUTOTUNE).prefetch(tf.data.AUTOTUNE)
@@ -192,7 +192,7 @@ def run_pipeline_one(
     # ---------- 2) cGAN ----------
     if verbose:
         print("\n[2] Training cGAN...")
-    gan_ds = build_gan_ds(train_dir, img_size=GAN_IMG, batch_size=GAN_BATCH)
+    gan_ds = _build_gan_ds_from_train(train_ds.unbatch().batch(GAN_BATCH), img_size=GAN_IMG)
     G = build_generator(LATENT_DIM, num_classes, img_size=GAN_IMG, base_ch=BASE_CH)
     D = build_discriminator(num_classes, img_size=GAN_IMG, base_ch=BASE_CH)
     train_cgan(
@@ -227,6 +227,8 @@ def run_pipeline_one(
         "data_dir": str(data_dir),
         "class_names": class_names,
         "fake_epoch_dir": str(fake_epoch_dir),
+        "dataset_format": dataset_format,
+        "has_inference_ds": "inference_ds" in extras,
     }
 
     # ---------- 4) CNN ratio experiments ----------
@@ -275,36 +277,40 @@ def run_pipeline_one(
 
     # ---------- 6) Optional: noisy clone + FID/KID ----------
     if run_noisy_clone:
-        if verbose:
-            print("\n[6] Noisy clone (Gaussian train, JPEG test) + FID/KID vs real:")
-        make_noisy_clone(
-            train_dir,
-            str(out_noisy / "train_gaussian_s0.1"),
-            noise="gaussian",
-            sigma=0.10,
-        )
-        make_noisy_clone(
-            test_dir,
-            str(out_noisy / "test_jpeg_q35"),
-            noise="jpeg",
-            jpeg_quality=35,
-        )
-        real_images_ds = real_ds_to_images_only(test_ds)
-        noisy_test_dir = out_noisy / "test_jpeg_q35"
-        if noisy_test_dir.exists():
-            fid_n, kid_m_n, kid_s_n = eval_folder_vs_real(
-                real_images_ds,
-                noisy_test_dir,
-                max_samples=FID_MAX_SAMPLES,
-                batch_size=FID_BATCH,
-                image_size=CLS_IMG,
-                seed=42,
-            )
-            results["noisy_fid"] = fid_n
-            results["noisy_kid_mean"] = kid_m_n
-            results["noisy_kid_std"] = kid_s_n
+        if dataset_format == "mnist_idx":
             if verbose:
-                print(f"    Noisy (JPEG) vs Real - FID: {fid_n:.2f}, KID: {kid_m_n:.4f} ± {kid_s_n:.4f}")
+                print("\n[6] Skip noisy clone: MNIST IDX has no class-folder split to clone directly.")
+        else:
+            if verbose:
+                print("\n[6] Noisy clone (Gaussian train, JPEG test) + FID/KID vs real:")
+            make_noisy_clone(
+                train_dir,
+                str(out_noisy / "train_gaussian_s0.1"),
+                noise="gaussian",
+                sigma=0.10,
+            )
+            make_noisy_clone(
+                test_dir,
+                str(out_noisy / "test_jpeg_q35"),
+                noise="jpeg",
+                jpeg_quality=35,
+            )
+            real_images_ds = real_ds_to_images_only(test_ds)
+            noisy_test_dir = out_noisy / "test_jpeg_q35"
+            if noisy_test_dir.exists():
+                fid_n, kid_m_n, kid_s_n = eval_folder_vs_real(
+                    real_images_ds,
+                    noisy_test_dir,
+                    max_samples=FID_MAX_SAMPLES,
+                    batch_size=FID_BATCH,
+                    image_size=CLS_IMG,
+                    seed=42,
+                )
+                results["noisy_fid"] = fid_n
+                results["noisy_kid_mean"] = kid_m_n
+                results["noisy_kid_std"] = kid_s_n
+                if verbose:
+                    print(f"    Noisy (JPEG) vs Real - FID: {fid_n:.2f}, KID: {kid_m_n:.4f} ± {kid_s_n:.4f}")
 
     return results
 

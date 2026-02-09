@@ -194,7 +194,6 @@ def run_ratio_experiments(
             steps_per_epoch=steps,
             epochs_stage1=epochs_stage1,
             epochs_stage2=epochs_stage2,
-            seed=seed,
             verbose=verbose,
         )
         results.append((orig_ratio, test_acc))
