@@ -33,33 +33,51 @@ def collect_activations(ds, extractor, max_samples=5000):
     for batch in ds:
         images = batch[0] if isinstance(batch, (tuple, list)) else batch
         images = preprocess_for_inception(images)
+
+        # trim this batch if it would exceed max_samples
+        take = min(int(images.shape[0]), max_samples - seen)
+        images = images[:take]
+
         f = extractor(images, training=False).numpy()
         feats.append(f)
         seen += f.shape[0]
         if seen >= max_samples:
             break
-    feats = np.concatenate(feats, axis=0)[:max_samples]
-    return feats
+
+    return np.concatenate(feats, axis=0)
+
 
 
 def compute_stats(features: np.ndarray):
+    features = np.asarray(features, dtype=np.float64)
     mu = np.mean(features, axis=0)
     sigma = np.cov(features, rowvar=False)
     return mu, sigma
 
 
+
 def frechet_distance(mu1, sigma1, mu2, sigma2, eps=1e-6):
     diff = mu1 - mu2
+
+    # Always add a small jitter to improve numerical stability
+    offset = np.eye(sigma1.shape[0]) * eps
+    sigma1 = sigma1 + offset
+    sigma2 = sigma2 + offset
+
     covmean, _ = linalg.sqrtm(sigma1 @ sigma2, disp=False)
 
-    if not np.isfinite(covmean).all():
-        offset = np.eye(sigma1.shape[0]) * eps
-        covmean = linalg.sqrtm((sigma1 + offset) @ (sigma2 + offset))
-
+    # sqrtm can return complex due to numerical error
     if np.iscomplexobj(covmean):
         covmean = covmean.real
 
+    # In rare cases covmean still has non-finite entries
+    if not np.isfinite(covmean).all():
+        covmean, _ = linalg.sqrtm((sigma1 + offset) @ (sigma2 + offset), disp=False)
+        if np.iscomplexobj(covmean):
+            covmean = covmean.real
+
     return float(diff @ diff + np.trace(sigma1) + np.trace(sigma2) - 2 * np.trace(covmean))
+
 
 
 def polynomial_kernel(x, y, degree=3, gamma=None, coef0=1.0):
@@ -166,17 +184,20 @@ def eval_folder_vs_real(
     Compare one fake folder vs real images dataset.
     Returns (fid, kid_mean, kid_std).
     """
-    fake_ds = folder_to_ds(
-        fake_folder,
-        image_size=image_size,
-        batch_size=batch_size,
-        shuffle=False,
-    )
+    fake_ds = folder_to_ds(fake_folder, image_size=image_size, batch_size=batch_size, shuffle=False)
+
+    # Estimate fake count from directory (fast, reliable)
+    fake_folder = Path(fake_folder)
+    fake_count = sum(1 for p in fake_folder.rglob("*") if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp", ".webp"})
+
+    # Use symmetric N to reduce instability
+    use_n = min(max_samples, fake_count)
+
     return compute_fid_kid_from_datasets(
         real_images_ds,
         fake_ds,
-        max_samples=max_samples,
-        kid_subset_size=kid_subset_size,
+        max_samples=use_n,
+        kid_subset_size=min(kid_subset_size, use_n),
         kid_n_subsets=kid_n_subsets,
         seed=seed,
     )
