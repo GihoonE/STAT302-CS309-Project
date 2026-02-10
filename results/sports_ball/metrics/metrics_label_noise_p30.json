@@ -1,0 +1,8 @@
+{
+  "fid_baseline": 322.2647198268348,
+  "kid_baseline_mean": 0.21301040649414063,
+  "kid_baseline_std": 0.002475135913839803,
+  "fid_label_noise": 302.4782021372064,
+  "kid_label_noise_mean": 0.17405112743377685,
+  "kid_label_noise_std": 0.002169316469945101
+}
