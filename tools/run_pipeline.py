@@ -10,36 +10,97 @@ def _parse_floats_csv(s: str):
     return [float(x.strip()) for x in s.split(",") if x.strip()]
 
 
+def _as_float(x):
+    try:
+        return float(x)
+    except Exception:
+        return None
+
+
+def _extract_ratio_and_acc(item):
+    """
+    item이 dict / tuple / list 어떤 형태든 ratio와 accuracy를 최대한 추출.
+    return: (ratio_float or None, acc_float or None)
+    """
+    if isinstance(item, dict):
+        r = _as_float(item.get("ratio"))
+        acc = None
+        for k in ("test_acc", "test_accuracy", "accuracy", "acc"):
+            if k in item:
+                acc = _as_float(item.get(k))
+                if acc is not None:
+                    break
+        return r, acc
+
+    if isinstance(item, (tuple, list)) and len(item) >= 1:
+        r = _as_float(item[0])
+
+        if len(item) >= 2 and isinstance(item[1], dict):
+            acc = None
+            for k in ("test_acc", "test_accuracy", "accuracy", "acc"):
+                if k in item[1]:
+                    acc = _as_float(item[1].get(k))
+                    if acc is not None:
+                        break
+            return r, acc
+
+        if len(item) >= 2:
+            acc = _as_float(item[1])
+            return r, acc
+
+        return r, None
+
+    return None, None
+
+
 def _pick_acc_at_ratio(cnn_results, target_ratio=0.8):
     """
-    run_ratio_experiments() 반환 형태가 프로젝트마다 달라서 방어적으로 뽑음.
-    우선순위: ratio 가장 가까운 row -> test_acc/test_accuracy/accuracy/acc
+    dict / list[dict] / list[tuple] / tuple(...) 전부 방어적으로 처리.
     """
     if cnn_results is None:
         return None
 
-    # case A) list[dict]
-    if isinstance(cnn_results, list):
-        if not cnn_results:
+    # cnn_results 자체가 tuple인 경우: (rows, ...) 같은 형태
+    if isinstance(cnn_results, tuple):
+        if len(cnn_results) >= 1 and isinstance(cnn_results[0], list):
+            cnn_results = cnn_results[0]
+        elif len(cnn_results) >= 1 and isinstance(cnn_results[0], dict):
+            cnn_results = cnn_results[0]
+        else:
             return None
-        best = min(cnn_results, key=lambda r: abs(float(r.get("ratio", -1)) - target_ratio))
-        for k in ("test_acc", "test_accuracy", "accuracy", "acc"):
-            if k in best and best[k] is not None:
-                return float(best[k])
-        return None
 
-    # case B) dict (ratio->metrics)
-    if isinstance(cnn_results, dict):
-        keys = list(cnn_results.keys())
-        if not keys:
+    if isinstance(cnn_results, list):
+        cand = []
+        for item in cnn_results:
+            r, acc = _extract_ratio_and_acc(item)
+            if r is not None and acc is not None:
+                cand.append((r, acc))
+        if not cand:
             return None
-        rk = min(keys, key=lambda k: abs(float(k) - target_ratio))
-        m = cnn_results[rk]
-        if isinstance(m, dict):
-            for k in ("test_acc", "test_accuracy", "accuracy", "acc"):
-                if k in m and m[k] is not None:
-                    return float(m[k])
-        return None
+        best_r, best_acc = min(cand, key=lambda t: abs(t[0] - float(target_ratio)))
+        return float(best_acc)
+
+    if isinstance(cnn_results, dict):
+        cand = []
+        for k, v in cnn_results.items():
+            r = _as_float(k)
+            if r is None:
+                continue
+            acc = None
+            if isinstance(v, dict):
+                for kk in ("test_acc", "test_accuracy", "accuracy", "acc"):
+                    if kk in v:
+                        acc = _as_float(v.get(kk))
+                        if acc is not None:
+                            break
+            else:
+                acc = _as_float(v)
+            if acc is not None:
+                cand.append((r, acc))
+        if not cand:
+            return None
+        best_r, best_acc = min(cand, key=lambda t: abs(t[0] - float(target_ratio)))
+        return float(best_acc)
 
     return None
 
@@ -52,6 +113,7 @@ def main():
     # pipeline knobs
     ap.add_argument("--cgan_epochs", type=int, default=30)
     ap.add_argument("--sample_every", type=int, default=5)
+
     ap.add_argument("--run_fid_kid", action="store_true", default=True)
     ap.add_argument("--no_fid_kid", action="store_false", dest="run_fid_kid")
     ap.add_argument("--verbose", type=int, default=1)
@@ -112,23 +174,21 @@ def main():
             "label_noise_p": float(p),
             "acc_ratio": float(args.acc_ratio),
 
-            # accuracy (둘 다 저장)
             "acc_baseline_fake": acc_base,
             "acc_label_noise_fake": acc_ln,
 
-            # baseline metrics
             "fid_baseline": res.get("fid_baseline"),
             "kid_baseline_mean": res.get("kid_baseline_mean"),
             "kid_baseline_std": res.get("kid_baseline_std"),
 
-            # label-noise metrics
             "fid_label_noise": res.get("fid_label_noise"),
             "kid_label_noise_mean": res.get("kid_label_noise_mean"),
             "kid_label_noise_std": res.get("kid_label_noise_std"),
 
-            # dirs
             "fake_epoch_dir_baseline": res.get("fake_epoch_dir_baseline"),
             "fake_epoch_dir_label_noise": res.get("fake_epoch_dir_label_noise"),
+            "cnn_csv_baseline": res.get("cnn_csv_baseline"),
+            "cnn_csv_label_noise": res.get("cnn_csv_label_noise"),
         }
         rows.append(row)
 
