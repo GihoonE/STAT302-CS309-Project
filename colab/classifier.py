@@ -72,6 +72,16 @@ def make_mixed_train_ds(
         return original_train_ds, None  # no steps_per_epoch needed for finite ds
 
     fake_ds = _make_fake_ds(fake_folder, img_size=img_size, batch_size=batch_size, shuffle=True, seed=seed)
+    
+    def _force_float32(ds):
+        return ds.map(
+            lambda x, y: (tf.cast(x, tf.float32), tf.cast(y, tf.int32)),
+            num_parallel_calls=tf.data.AUTOTUNE
+        )
+
+    original_train_ds2 = _force_float32(original_train_ds)
+    fake_ds2 = _force_float32(fake_ds)
+    
     mixed = tf.data.Dataset.sample_from_datasets(
         [original_train_ds.repeat(), fake_ds.repeat()],
         weights=[orig_ratio, 1.0 - orig_ratio],
