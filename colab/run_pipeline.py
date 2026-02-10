@@ -32,13 +32,24 @@ FID_BATCH = 32
 
 
 def _prepare_ds_for_dataset(cfg, **kwargs):
+    # ✅ mnist_keras는 kaggle_dataset 인자 자체가 의미 없음 (kagglehub 안 씀)
+    if cfg["dataset_format"] == "mnist_keras":
+        return prepare_ds(
+            kaggle_dataset="",  # 아무거나 넣어도 되지만, 명시적으로 빈 문자열
+            dataset_format=cfg["dataset_format"],
+            **kwargs,
+        )
+
+    # 기존 kagglehub 데이터셋들
     return prepare_ds(
         cfg["slug"],
         dataset_format=cfg["dataset_format"],
         train_subdir=cfg.get("train_subdir", "train"),
+        val_subdir=cfg.get("val_subdir", None),     # ✅ animals에 필요 (너 pipeline에 이 줄 없었음!)
         test_subdir=cfg.get("test_subdir", "test"),
         **kwargs,
     )
+
 
 
 def _build_gan_ds_from_train(train_ds, *, img_size=(64, 64)):
