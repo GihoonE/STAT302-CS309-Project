@@ -2,10 +2,11 @@
 Dataset-aware data preparation.
 
 Supports formats:
-1) imagefolder_train_labeled_test_unlabeled  (e.g., animals: train/val + unlabeled inf)
-2) imagefolder_supervised_train_test         (e.g., sports_ball: train/test labeled)
-3) mnist_idx                                 (IDX binary)
-4) mnist_csv                                 (CSV with label + 784 pixels)
+1) imagefolder_train_labeled_test_unlabeled
+2) imagefolder_supervised_train_test
+3) mnist_idx
+4) mnist_csv
+5) mnist_keras   (tf.keras.datasets.mnist)
 """
 from pathlib import Path
 import struct
@@ -188,65 +189,65 @@ def prepare_ds(
     cache=True,
     prefetch=True,
     train_subdir="train",
-    val_subdir=None,         # NEW: for datasets that already have val/ folder
+    val_subdir=None,
     test_subdir="test",
 ):
     """
     Returns:
       train_ds, val_ds, test_ds, class_names, data_dir, extras
-
-    extras may include:
-      - inference_ds: unlabeled inference dataset (for unlabeled test/inf)
     """
-    if kagglehub is None:
-        raise ImportError("pip install kagglehub")
     if not (0.0 < val_split < 1.0):
         raise ValueError(f"val_split must be in (0,1), got {val_split}")
     if dataset_format == "mnist_csv" and not (0.0 < test_split < 1.0):
         raise ValueError(f"test_split must be in (0,1), got {test_split}")
 
-    data_dir = Path(kagglehub.dataset_download(kaggle_dataset))
     extras = {}
 
-    train_dir = data_dir / train_subdir if train_subdir else None
-    val_dir = data_dir / val_subdir if val_subdir else None
-    test_dir = data_dir / test_subdir if test_subdir else None
+    # ✅ mnist_keras는 kagglehub 자체를 사용하지 않음
+    if dataset_format == "mnist_keras":
+        (x_train, y_train), (x_test, y_test) = tf.keras.datasets.mnist.load_data()
+        # x_train: (60000,28,28) uint8 / y_train: (60000,)
+        # split train -> train/val
+        n_train = len(y_train)
+        idx = np.arange(n_train)
+        rng = np.random.default_rng(seed)
+        rng.shuffle(idx)
 
-    if dataset_format == "imagefolder_supervised_train_test":
-        if not train_dir or not train_dir.exists() or not test_dir or not test_dir.exists():
-            raise FileNotFoundError(f"Expected train/test dirs not found under: {data_dir}")
+        n_val = int(n_train * val_split)
+        val_idx = idx[:n_val]
+        tr_idx = idx[n_val:]
 
-        # train split -> train/val
-        train_ds, val_ds = _imagefolder_train_val_split(
-            train_dir,
-            img_size=img_size,
-            batch_size=batch_size,
-            seed=seed,
-            val_split=val_split,
-            shuffle_train=shuffle_train,
+        train_ds = _mnist_np_to_ds(
+            x_train[tr_idx], y_train[tr_idx],
+            img_size=img_size, batch_size=batch_size, shuffle=shuffle_train, seed=seed
         )
-
-        test_ds = _imagefolder_dir(
-            test_dir, img_size=img_size, batch_size=batch_size, shuffle=False, label_mode="int"
+        val_ds = _mnist_np_to_ds(
+            x_train[val_idx], y_train[val_idx],
+            img_size=img_size, batch_size=batch_size, shuffle=False, seed=seed
         )
-        class_names = train_ds.class_names
+        test_ds = _mnist_np_to_ds(
+            x_test, y_test,
+            img_size=img_size, batch_size=batch_size, shuffle=False, seed=seed
+        )
+        class_names = [str(i) for i in range(10)]
+        data_dir = Path("<keras_builtin_mnist>")
+        extras["source"] = "mnist_keras"
 
-    elif dataset_format == "imagefolder_train_labeled_test_unlabeled":
-        # Here test_dir is typically unlabeled (inf/), and val_dir may exist.
-        if not train_dir or not train_dir.exists():
-            raise FileNotFoundError(f"Expected TRAIN dir not found under: {data_dir}")
-        if not test_dir or not test_dir.exists():
-            raise FileNotFoundError(f"Expected TEST/INF dir not found under: {data_dir}")
+    else:
+        # ✅ 나머지(sports_ball/animals/idx/csv)는 kagglehub 필요
+        if kagglehub is None:
+            raise ImportError("pip install kagglehub")
 
-        # If val_dir exists, use it directly (animals case). Otherwise split from train_dir.
-        if val_dir and val_dir.exists():
-            train_ds = _imagefolder_dir(
-                train_dir, img_size=img_size, batch_size=batch_size, shuffle=shuffle_train, label_mode="int", seed=seed
-            )
-            val_ds = _imagefolder_dir(
-                val_dir, img_size=img_size, batch_size=batch_size, shuffle=False, label_mode="int"
-            )
-        else:
+        data_dir = Path(kagglehub.dataset_download(kaggle_dataset))
+
+        train_dir = data_dir / train_subdir if train_subdir else None
+        val_dir = data_dir / val_subdir if val_subdir else None
+        test_dir = data_dir / test_subdir if test_subdir else None
+
+        if dataset_format == "imagefolder_supervised_train_test":
+            if not train_dir or not train_dir.exists() or not test_dir or not test_dir.exists():
+                raise FileNotFoundError(f"Expected train/test dirs not found under: {data_dir}")
+
             train_ds, val_ds = _imagefolder_train_val_split(
                 train_dir,
                 img_size=img_size,
@@ -255,73 +256,106 @@ def prepare_ds(
                 val_split=val_split,
                 shuffle_train=shuffle_train,
             )
+            test_ds = _imagefolder_dir(
+                test_dir, img_size=img_size, batch_size=batch_size, shuffle=False, label_mode="int"
+            )
+            class_names = train_ds.class_names
 
-        # supervised metrics fallback: use val as test
-        test_ds = val_ds
-        class_names = train_ds.class_names
+        elif dataset_format == "imagefolder_train_labeled_test_unlabeled":
+            if not train_dir or not train_dir.exists():
+                raise FileNotFoundError(f"Expected TRAIN dir not found under: {data_dir}")
+            if not test_dir or not test_dir.exists():
+                raise FileNotFoundError(f"Expected TEST/INF dir not found under: {data_dir}")
 
-        # unlabeled inference ds from test_dir
-        extras["inference_ds"] = _infer_unlabeled_ds(test_dir, img_size=img_size, batch_size=batch_size)
+            if val_dir and val_dir.exists():
+                train_ds = _imagefolder_dir(
+                    train_dir, img_size=img_size, batch_size=batch_size,
+                    shuffle=shuffle_train, label_mode="int", seed=seed
+                )
+                val_ds = _imagefolder_dir(
+                    val_dir, img_size=img_size, batch_size=batch_size,
+                    shuffle=False, label_mode="int"
+                )
+            else:
+                train_ds, val_ds = _imagefolder_train_val_split(
+                    train_dir,
+                    img_size=img_size,
+                    batch_size=batch_size,
+                    seed=seed,
+                    val_split=val_split,
+                    shuffle_train=shuffle_train,
+                )
 
-    elif dataset_format == "mnist_idx":
-        req = {
-            "train_images": data_dir / "train-images.idx3-ubyte",
-            "train_labels": data_dir / "train-labels.idx1-ubyte",
-            "test_images": data_dir / "t10k-images.idx3-ubyte",
-            "test_labels": data_dir / "t10k-labels.idx1-ubyte",
-        }
-        missing = [str(p) for p in req.values() if not p.exists()]
-        if missing:
-            raise FileNotFoundError(f"MNIST IDX files missing: {missing}")
+            test_ds = val_ds
+            class_names = train_ds.class_names
+            extras["inference_ds"] = _infer_unlabeled_ds(test_dir, img_size=img_size, batch_size=batch_size)
 
-        train_images = _load_idx_images(req["train_images"])
-        train_labels = _load_idx_labels(req["train_labels"])
-        test_images = _load_idx_images(req["test_images"])
-        test_labels = _load_idx_labels(req["test_labels"])
+        elif dataset_format == "mnist_idx":
+            req = {
+                "train_images": data_dir / "train-images.idx3-ubyte",
+                "train_labels": data_dir / "train-labels.idx1-ubyte",
+                "test_images": data_dir / "t10k-images.idx3-ubyte",
+                "test_labels": data_dir / "t10k-labels.idx1-ubyte",
+            }
+            missing = [str(p) for p in req.values() if not p.exists()]
+            if missing:
+                raise FileNotFoundError(f"MNIST IDX files missing: {missing}")
 
-        n_train = len(train_labels)
-        idx = np.arange(n_train)
-        rng = np.random.default_rng(seed)
-        rng.shuffle(idx)
-        n_val = int(n_train * val_split)
-        val_idx = idx[:n_val]
-        tr_idx = idx[n_val:]
+            train_images = _load_idx_images(req["train_images"])
+            train_labels = _load_idx_labels(req["train_labels"])
+            test_images = _load_idx_images(req["test_images"])
+            test_labels = _load_idx_labels(req["test_labels"])
 
-        train_ds = _mnist_np_to_ds(train_images[tr_idx], train_labels[tr_idx],
-                                   img_size=img_size, batch_size=batch_size, shuffle=shuffle_train, seed=seed)
-        val_ds = _mnist_np_to_ds(train_images[val_idx], train_labels[val_idx],
-                                 img_size=img_size, batch_size=batch_size, shuffle=False, seed=seed)
-        test_ds = _mnist_np_to_ds(test_images, test_labels,
-                                  img_size=img_size, batch_size=batch_size, shuffle=False, seed=seed)
+            n_train = len(train_labels)
+            idx = np.arange(n_train)
+            rng = np.random.default_rng(seed)
+            rng.shuffle(idx)
+            n_val = int(n_train * val_split)
+            val_idx = idx[:n_val]
+            tr_idx = idx[n_val:]
 
-        class_names = [str(i) for i in range(10)]
+            train_ds = _mnist_np_to_ds(
+                train_images[tr_idx], train_labels[tr_idx],
+                img_size=img_size, batch_size=batch_size, shuffle=shuffle_train, seed=seed
+            )
+            val_ds = _mnist_np_to_ds(
+                train_images[val_idx], train_labels[val_idx],
+                img_size=img_size, batch_size=batch_size, shuffle=False, seed=seed
+            )
+            test_ds = _mnist_np_to_ds(
+                test_images, test_labels,
+                img_size=img_size, batch_size=batch_size, shuffle=False, seed=seed
+            )
+            class_names = [str(i) for i in range(10)]
 
-    elif dataset_format == "mnist_csv":
-        csv_path = data_dir / "mnist_dataset.csv"
-        if not csv_path.exists():
-            raise FileNotFoundError(f"MNIST CSV missing: {csv_path}")
+        elif dataset_format == "mnist_csv":
+            csv_path = data_dir / "mnist_dataset.csv"
+            if not csv_path.exists():
+                raise FileNotFoundError(f"MNIST CSV missing: {csv_path}")
 
-        images, labels = _load_mnist_csv(csv_path)
-        (x_tr, y_tr), (x_val, y_val), (x_te, y_te) = _split_train_val_test(
-            images, labels, seed=seed, val_split=val_split, test_split=test_split
-        )
+            images, labels = _load_mnist_csv(csv_path)
+            (x_tr, y_tr), (x_val, y_val), (x_te, y_te) = _split_train_val_test(
+                images, labels, seed=seed, val_split=val_split, test_split=test_split
+            )
 
-        train_ds = _mnist_np_to_ds(x_tr, y_tr, img_size=img_size, batch_size=batch_size, shuffle=shuffle_train, seed=seed)
-        val_ds = _mnist_np_to_ds(x_val, y_val, img_size=img_size, batch_size=batch_size, shuffle=False, seed=seed)
-        test_ds = _mnist_np_to_ds(x_te, y_te, img_size=img_size, batch_size=batch_size, shuffle=False, seed=seed)
-        class_names = [str(i) for i in range(10)]
-        extras["source"] = "mnist_csv"
+            train_ds = _mnist_np_to_ds(x_tr, y_tr, img_size=img_size, batch_size=batch_size, shuffle=shuffle_train, seed=seed)
+            val_ds = _mnist_np_to_ds(x_val, y_val, img_size=img_size, batch_size=batch_size, shuffle=False, seed=seed)
+            test_ds = _mnist_np_to_ds(x_te, y_te, img_size=img_size, batch_size=batch_size, shuffle=False, seed=seed)
+            class_names = [str(i) for i in range(10)]
+            extras["source"] = "mnist_csv"
 
-    else:
-        raise ValueError(
-            f"Unsupported dataset_format: {dataset_format}. "
-            "Use one of imagefolder_supervised_train_test, "
-            "imagefolder_train_labeled_test_unlabeled, mnist_idx, mnist_csv."
-        )
+        else:
+            raise ValueError(
+                f"Unsupported dataset_format: {dataset_format}. "
+                "Use one of imagefolder_supervised_train_test, "
+                "imagefolder_train_labeled_test_unlabeled, mnist_idx, mnist_csv, mnist_keras."
+            )
 
+    # pipeline
     train_ds = _pipe(train_ds, cache=cache, prefetch=prefetch, seed=seed, shuffle=shuffle_train)
     val_ds = _pipe(val_ds, cache=cache, prefetch=prefetch, seed=seed, shuffle=False)
     test_ds = _pipe(test_ds, cache=cache, prefetch=prefetch, seed=seed, shuffle=False)
 
     print(f"Prepared {len(class_names)} classes | format={dataset_format} | data_dir={data_dir}")
     return train_ds, val_ds, test_ds, class_names, data_dir, extras
+

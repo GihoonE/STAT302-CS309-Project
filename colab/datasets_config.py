@@ -15,9 +15,15 @@ DATASETS = {
     test_subdir="animals/inf",
   ),
   "mnist": dict(
-    name="MNIST",
-    slug="arnavsharma45/mnist-dataset",
-    dataset_format="mnist_csv",
-    # subdir 없음
+    name="MNIST (Keras builtin)",
+    slug="",                       # kagglehub 안 씀
+    dataset_format="mnist_keras",   # ✅ 여기만 바꿔
   ),
+}
+
+# KAGGLE_URLS: slug 없는 애는 빼거나 안전하게 처리
+KAGGLE_URLS = {
+    k: f"https://www.kaggle.com/datasets/{v['slug']}"
+    for k, v in DATASETS.items()
+    if v.get("slug")  # ✅ slug 비어있으면 제외
 }
