@@ -1,3 +1,4 @@
+# colab/run_pipeline.py
 from pathlib import Path
 import tensorflow as tf
 
@@ -32,70 +33,64 @@ FID_BATCH = 32
 
 
 def _prepare_ds_for_dataset(cfg, **kwargs):
-    # ✅ mnist_keras는 kaggle_dataset 인자 자체가 의미 없음 (kagglehub 안 씀)
+    # mnist_keras는 kagglehub 안 씀
     if cfg["dataset_format"] == "mnist_keras":
         return prepare_ds(
-            kaggle_dataset="",  # 아무거나 넣어도 되지만, 명시적으로 빈 문자열
+            kaggle_dataset="",
             dataset_format=cfg["dataset_format"],
             **kwargs,
         )
 
-    # 기존 kagglehub 데이터셋들
     return prepare_ds(
         cfg["slug"],
         dataset_format=cfg["dataset_format"],
         train_subdir=cfg.get("train_subdir", "train"),
-        val_subdir=cfg.get("val_subdir", None),     # ✅ animals에 필요 (너 pipeline에 이 줄 없었음!)
+        val_subdir=cfg.get("val_subdir", None),
         test_subdir=cfg.get("test_subdir", "test"),
         **kwargs,
     )
-
 
 
 def _build_gan_ds_from_train(train_ds, *, img_size=(64, 64)):
     """train_ds: (image,label) batches. Convert to [-1,1] RGB and resize to GAN size."""
     def to_gan(x, y):
         x = tf.image.resize(x, img_size)
-        # ensure RGB
         if x.shape[-1] == 1:
             x = tf.repeat(x, 3, axis=-1)
         x = tf.cast(x, tf.float32)
         x = (x / 127.5) - 1.0
         y = tf.cast(y, tf.int32)
         return x, y
+
     return train_ds.map(to_gan, num_parallel_calls=tf.data.AUTOTUNE).prefetch(tf.data.AUTOTUNE)
+
+
+def _pick_epoch_dir(out_dir: Path, cgan_epochs: int, sample_every: int):
+    """epoch_{cgan_epochs} 없으면 epoch_{sample_every}로 fallback."""
+    d1 = out_dir / f"epoch_{cgan_epochs:03d}"
+    if d1.exists():
+        return d1
+    d2 = out_dir / f"epoch_{sample_every:03d}"
+    return d2
 
 
 def run_pipeline_one(
     dataset_key,
-    out_root="/content/results",
+    out_root="results",
     *,
     # cGAN
     cgan_epochs=CGAN_EPOCHS,
     sample_every=SAMPLE_EVERY,
-    label_noise_p=0.2,          # << 핵심: label-noise cGAN 확률
-    n_show_samples=5,           # 현재 show 함수는 그대로 두고 싶으면 유지 (아래에서 skip 가능)
+    label_noise_p=0.2,
+    reuse_if_exists=True,     # ✅ 이미 생성된 fake가 있으면 학습 스킵
     # CNN
-    cnn_ratios=None,            # 기본은 아래에서 [1.0,0.8,0.7,0.6,0.5]
+    cnn_ratios=None,
     cnn_epochs_stage1=EPOCHS_STAGE1,
     cnn_epochs_stage2=EPOCHS_STAGE2,
     # Eval
     run_fid_kid=True,
     verbose=1,
 ):
-    """
-    목표:
-    1) 데이터셋별 cGAN 학습 후 이미지 생성 (baseline + label-noise 둘 다)
-    2) CNN classifier 성능 체크 (100%, 80%+20%, 70%+30%, 60%+40%, 50%+50%)
-    3) FID/KID 성능 체크 (baseline cGAN vs real, label-noise cGAN vs real)
-
-    Returns dict:
-      - data_dir, class_names
-      - fake_epoch_dir_baseline, fake_epoch_dir_label_noise
-      - cnn_results_baseline (baseline fake 사용)
-      - fid_baseline / kid_baseline
-      - fid_label_noise / kid_label_noise
-    """
     if dataset_key not in DATASETS:
         raise ValueError(f"Unknown dataset_key: {dataset_key}. Choose from {list(DATASETS)}")
 
@@ -103,7 +98,6 @@ def run_pipeline_one(
     name = cfg["name"]
     dataset_format = cfg["dataset_format"]
 
-    # CNN ratios default: 100/80/70/60/50
     if cnn_ratios is None:
         cnn_ratios = [1.0, 0.8, 0.7, 0.6, 0.5]
 
@@ -112,7 +106,9 @@ def run_pipeline_one(
 
     out_fake_base = out_base / "fake_samples" / "baseline"
     out_fake_ln = out_base / "fake_samples" / f"label_noise_p{int(label_noise_p*100):02d}"
-    out_csv = out_base / "cnn_ratio_results.csv"
+
+    out_csv_base = out_base / "cnn_ratio_results_baseline.csv"
+    out_csv_ln = out_base / f"cnn_ratio_results_label_noise_p{int(label_noise_p*100):02d}.csv"
 
     if verbose:
         print("\n" + "=" * 70)
@@ -121,7 +117,7 @@ def run_pipeline_one(
 
     # ---------- 1) Data ----------
     if verbose:
-        print("[1] Loading data via prepare_ds(kagglehub)...")
+        print("[1] Loading data via prepare_ds(...) ...")
 
     train_ds, val_ds, test_ds, class_names, data_dir, extras = _prepare_ds_for_dataset(
         cfg,
@@ -136,7 +132,7 @@ def run_pipeline_one(
         print(f"    num_classes: {num_classes}")
         print(f"    class_names[:10]: {class_names[:10]}")
         if "inference_ds" in extras:
-            print("    NOTE: this dataset has unlabeled TEST; metrics test_ds=val_ds fallback.")
+            print("    NOTE: unlabeled TEST detected; metrics test_ds=val_ds fallback.")
 
     # Ensure RGB for classifier (MNIST etc.)
     def ensure_rgb(x, y):
@@ -148,58 +144,68 @@ def run_pipeline_one(
     val_ds = val_ds.map(ensure_rgb, num_parallel_calls=tf.data.AUTOTUNE).prefetch(tf.data.AUTOTUNE)
     test_ds = test_ds.map(ensure_rgb, num_parallel_calls=tf.data.AUTOTUNE).prefetch(tf.data.AUTOTUNE)
 
-    # ---------- 2) cGAN baseline ----------
-    if verbose:
-        print("\n[2] Training cGAN baseline (label_noise_p=0.0)...")
-
-    # GAN ds: take finite train stream, convert to GAN size and [-1,1]
+    # GAN ds
     gan_ds = _build_gan_ds_from_train(train_ds.unbatch().batch(GAN_BATCH), img_size=GAN_IMG)
 
-    G0 = build_generator(LATENT_DIM, num_classes, img_size=GAN_IMG, base_ch=BASE_CH)
-    D0 = build_discriminator(num_classes, img_size=GAN_IMG, base_ch=BASE_CH)
+    # ---------- 2) cGAN baseline ----------
+    if verbose:
+        print("\n[2] Training cGAN baseline (label_noise_p=0.0) ...")
 
-    train_cgan(
-        gan_ds,
-        G0,
-        D0,
-        class_names,
-        LATENT_DIM,
-        num_classes,
-        label_noise_p=0.0,
-        epochs=cgan_epochs,
-        sample_every=sample_every,
-        out_dir=str(out_fake_base),
-    )
+    out_fake_base.mkdir(parents=True, exist_ok=True)
+    fake_base_dir = _pick_epoch_dir(out_fake_base, cgan_epochs, sample_every)
 
-    fake_base_dir = out_fake_base / f"epoch_{cgan_epochs:03d}"
-    if not fake_base_dir.exists():
-        fake_base_dir = out_fake_base / f"epoch_{sample_every:03d}"  # fallback
+    if reuse_if_exists and fake_base_dir.exists():
+        if verbose:
+            print(f"    ✅ reuse baseline fake dir: {fake_base_dir}")
+    else:
+        G0 = build_generator(LATENT_DIM, num_classes, img_size=GAN_IMG, base_ch=BASE_CH)
+        D0 = build_discriminator(num_classes, img_size=GAN_IMG, base_ch=BASE_CH)
+
+        train_cgan(
+            gan_ds,
+            G0,
+            D0,
+            class_names,
+            LATENT_DIM,
+            num_classes,
+            label_noise_p=0.0,
+            epochs=cgan_epochs,
+            sample_every=sample_every,
+            out_dir=str(out_fake_base),
+        )
+        fake_base_dir = _pick_epoch_dir(out_fake_base, cgan_epochs, sample_every)
+
     if verbose:
         print(f"    baseline fake dir: {fake_base_dir}")
 
     # ---------- 3) cGAN label-noise ----------
     if verbose:
-        print(f"\n[3] Training cGAN label-noise (label_noise_p={label_noise_p})...")
+        print(f"\n[3] Training cGAN label-noise (label_noise_p={label_noise_p}) ...")
 
-    G1 = build_generator(LATENT_DIM, num_classes, img_size=GAN_IMG, base_ch=BASE_CH)
-    D1 = build_discriminator(num_classes, img_size=GAN_IMG, base_ch=BASE_CH)
+    out_fake_ln.mkdir(parents=True, exist_ok=True)
+    fake_ln_dir = _pick_epoch_dir(out_fake_ln, cgan_epochs, sample_every)
 
-    train_cgan(
-        gan_ds,
-        G1,
-        D1,
-        class_names,
-        LATENT_DIM,
-        num_classes,
-        label_noise_p=float(label_noise_p),
-        epochs=cgan_epochs,
-        sample_every=sample_every,
-        out_dir=str(out_fake_ln),
-    )
+    if reuse_if_exists and fake_ln_dir.exists():
+        if verbose:
+            print(f"    ✅ reuse label-noise fake dir: {fake_ln_dir}")
+    else:
+        G1 = build_generator(LATENT_DIM, num_classes, img_size=GAN_IMG, base_ch=BASE_CH)
+        D1 = build_discriminator(num_classes, img_size=GAN_IMG, base_ch=BASE_CH)
 
-    fake_ln_dir = out_fake_ln / f"epoch_{cgan_epochs:03d}"
-    if not fake_ln_dir.exists():
-        fake_ln_dir = out_fake_ln / f"epoch_{sample_every:03d}"  # fallback
+        train_cgan(
+            gan_ds,
+            G1,
+            D1,
+            class_names,
+            LATENT_DIM,
+            num_classes,
+            label_noise_p=float(label_noise_p),
+            epochs=cgan_epochs,
+            sample_every=sample_every,
+            out_dir=str(out_fake_ln),
+        )
+        fake_ln_dir = _pick_epoch_dir(out_fake_ln, cgan_epochs, sample_every)
+
     if verbose:
         print(f"    label-noise fake dir: {fake_ln_dir}")
 
@@ -207,41 +213,57 @@ def run_pipeline_one(
         "data_dir": str(data_dir),
         "class_names": class_names,
         "dataset_format": dataset_format,
+        "has_inference_ds": "inference_ds" in extras,
         "fake_epoch_dir_baseline": str(fake_base_dir),
         "fake_epoch_dir_label_noise": str(fake_ln_dir),
-        "has_inference_ds": "inference_ds" in extras,
     }
 
-    # ---------- 4) CNN ratio experiments (baseline fake 사용) ----------
+    # ---------- 4) CNN ratio experiments ----------
     if verbose:
-        print("\n[4] CNN performance with baseline cGAN fake:")
+        print("\n[4] CNN performance with baseline fake:")
         print(f"    ratios: {cnn_ratios}")
 
-    cnn_results = run_ratio_experiments(
-        train_ds,
-        val_ds,
-        test_ds,
+    cnn_results_base = run_ratio_experiments(
+        train_ds, val_ds, test_ds,
         class_names,
-        fake_base_dir,                 # baseline fake만 섞어서 성능 체크
+        fake_base_dir,
         ratios=cnn_ratios,
         img_size=CLS_IMG,
         batch_size=CLS_BATCH,
         steps_per_epoch=STEPS_PER_EPOCH,
         epochs_stage1=cnn_epochs_stage1,
         epochs_stage2=cnn_epochs_stage2,
-        out_csv=str(out_csv),
+        out_csv=str(out_csv_base),
         verbose=verbose,
     )
-    results["cnn_results_baseline"] = cnn_results
+    results["cnn_results_baseline"] = cnn_results_base
 
-    # ---------- 5) FID/KID: real vs baseline, real vs label-noise ----------
+    if verbose:
+        print("\n[4b] CNN performance with label-noise fake:")
+        print(f"    ratios: {cnn_ratios}")
+
+    cnn_results_ln = run_ratio_experiments(
+        train_ds, val_ds, test_ds,
+        class_names,
+        fake_ln_dir,
+        ratios=cnn_ratios,
+        img_size=CLS_IMG,
+        batch_size=CLS_BATCH,
+        steps_per_epoch=STEPS_PER_EPOCH,
+        epochs_stage1=cnn_epochs_stage1,
+        epochs_stage2=cnn_epochs_stage2,
+        out_csv=str(out_csv_ln),
+        verbose=verbose,
+    )
+    results["cnn_results_label_noise"] = cnn_results_ln
+
+    # ---------- 5) FID/KID ----------
     if run_fid_kid:
         if verbose:
             print("\n[5] FID/KID (real test vs fake folders) ...")
 
         real_images_ds = real_ds_to_images_only(test_ds)
 
-        # baseline
         fid0, kidm0, kids0 = eval_folder_vs_real(
             real_images_ds,
             fake_base_dir,
@@ -254,7 +276,6 @@ def run_pipeline_one(
         results["kid_baseline_mean"] = kidm0
         results["kid_baseline_std"] = kids0
 
-        # label-noise
         fid1, kidm1, kids1 = eval_folder_vs_real(
             real_images_ds,
             fake_ln_dir,
