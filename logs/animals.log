@@ -1,0 +1,111 @@
+nohup: ignoring input
+2026-02-10 09:23:00.482747: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+2026-02-10 09:23:00.561173: I tensorflow/core/platform/cpu_feature_guard.cc:210] This TensorFlow binary is optimized to use available CPU instructions in performance-critical operations.
+To enable the following instructions: AVX2 AVX512F AVX512_VNNI FMA, in other operations, rebuild TensorFlow with the appropriate compiler flags.
+2026-02-10 09:23:02.385640: I tensorflow/core/util/port.cc:153] oneDNN custom operations are on. You may see slightly different numerical results due to floating-point round-off errors from different computation orders. To turn them off, set the environment variable `TF_ENABLE_ONEDNN_OPTS=0`.
+
+======================================================================
+Dataset: Cats-and-Dogs-Breed (animals) | format=imagefolder_train_labeled_test_unlabeled
+======================================================================
+[1] Loading data via prepare_ds ...
+Found 13474 files belonging to 5 classes.
+WARNING: All log messages before absl::InitializeLog() is called are written to STDERR
+I0000 00:00:1770715385.445397 3203042 gpu_device.cc:2020] Created device /job:localhost/replica:0/task:0/device:GPU:0 with 75555 MB memory:  -> device: 0, name: NVIDIA A800 80GB PCIe, pci bus id: 0000:ce:00.0, compute capability: 8.0
+Found 1497 files belonging to 5 classes.
+Prepared 5 classes | format=imagefolder_train_labeled_test_unlabeled | data_dir=/home/GihoonE/.cache/kagglehub/datasets/antobenedetti/animals/versions/5
+    data_dir: /home/GihoonE/.cache/kagglehub/datasets/antobenedetti/animals/versions/5
+    num_classes: 5
+    class_names[:10]: ['cat', 'dog', 'elephant', 'horse', 'lion']
+    NOTE: this dataset has unlabeled TEST; metrics test_ds=val_ds fallback.
+
+[2] Baseline cGAN reuse: results/animals/fake_samples/baseline/epoch_030
+    baseline fake dir: results/animals/fake_samples/baseline/epoch_030
+
+[3] Label-noise cGAN reuse (p=0.0): results/animals/fake_samples/label_noise_p00/epoch_030
+    label-noise fake dir: results/animals/fake_samples/label_noise_p00/epoch_030
+
+[4] CNN baseline reuse CSV: results/animals/cnn_ratio_results_baseline.csv
+
+[4b] CNN label-noise reuse CSV: results/animals/cnn_ratio_results_label_noise_p00.csv
+
+[5] FID/KID reuse: results/animals/metrics/metrics_label_noise_p00.json
+
+======================================================================
+Dataset: Cats-and-Dogs-Breed (animals) | format=imagefolder_train_labeled_test_unlabeled
+======================================================================
+[1] Loading data via prepare_ds ...
+Found 13474 files belonging to 5 classes.
+Found 1497 files belonging to 5 classes.
+Prepared 5 classes | format=imagefolder_train_labeled_test_unlabeled | data_dir=/home/GihoonE/.cache/kagglehub/datasets/antobenedetti/animals/versions/5
+    data_dir: /home/GihoonE/.cache/kagglehub/datasets/antobenedetti/animals/versions/5
+    num_classes: 5
+    class_names[:10]: ['cat', 'dog', 'elephant', 'horse', 'lion']
+    NOTE: this dataset has unlabeled TEST; metrics test_ds=val_ds fallback.
+
+[2] Baseline cGAN reuse: results/animals/fake_samples/baseline/epoch_030
+    baseline fake dir: results/animals/fake_samples/baseline/epoch_030
+
+[3] Label-noise cGAN reuse (p=0.1): results/animals/fake_samples/label_noise_p10/epoch_030
+    label-noise fake dir: results/animals/fake_samples/label_noise_p10/epoch_030
+
+[4] CNN baseline reuse CSV: results/animals/cnn_ratio_results_baseline.csv
+
+[4b] CNN label-noise reuse CSV: results/animals/cnn_ratio_results_label_noise_p10.csv
+
+[5] FID/KID reuse: results/animals/metrics/metrics_label_noise_p10.json
+
+======================================================================
+Dataset: Cats-and-Dogs-Breed (animals) | format=imagefolder_train_labeled_test_unlabeled
+======================================================================
+[1] Loading data via prepare_ds ...
+Found 13474 files belonging to 5 classes.
+Found 1497 files belonging to 5 classes.
+Prepared 5 classes | format=imagefolder_train_labeled_test_unlabeled | data_dir=/home/GihoonE/.cache/kagglehub/datasets/antobenedetti/animals/versions/5
+    data_dir: /home/GihoonE/.cache/kagglehub/datasets/antobenedetti/animals/versions/5
+    num_classes: 5
+    class_names[:10]: ['cat', 'dog', 'elephant', 'horse', 'lion']
+    NOTE: this dataset has unlabeled TEST; metrics test_ds=val_ds fallback.
+
+[2] Baseline cGAN reuse: results/animals/fake_samples/baseline/epoch_030
+    baseline fake dir: results/animals/fake_samples/baseline/epoch_030
+
+[3] Label-noise cGAN reuse (p=0.2): results/animals/fake_samples/label_noise_p20/epoch_030
+    label-noise fake dir: results/animals/fake_samples/label_noise_p20/epoch_030
+
+[4] CNN baseline reuse CSV: results/animals/cnn_ratio_results_baseline.csv
+
+[4b] CNN label-noise reuse CSV: results/animals/cnn_ratio_results_label_noise_p20.csv
+
+[5] FID/KID reuse: results/animals/metrics/metrics_label_noise_p20.json
+
+======================================================================
+Dataset: Cats-and-Dogs-Breed (animals) | format=imagefolder_train_labeled_test_unlabeled
+======================================================================
+[1] Loading data via prepare_ds ...
+Found 13474 files belonging to 5 classes.
+Found 1497 files belonging to 5 classes.
+Prepared 5 classes | format=imagefolder_train_labeled_test_unlabeled | data_dir=/home/GihoonE/.cache/kagglehub/datasets/antobenedetti/animals/versions/5
+    data_dir: /home/GihoonE/.cache/kagglehub/datasets/antobenedetti/animals/versions/5
+    num_classes: 5
+    class_names[:10]: ['cat', 'dog', 'elephant', 'horse', 'lion']
+    NOTE: this dataset has unlabeled TEST; metrics test_ds=val_ds fallback.
+
+[2] Baseline cGAN reuse: results/animals/fake_samples/baseline/epoch_030
+    baseline fake dir: results/animals/fake_samples/baseline/epoch_030
+
+[3] Label-noise cGAN reuse (p=0.3): results/animals/fake_samples/label_noise_p30/epoch_030
+    label-noise fake dir: results/animals/fake_samples/label_noise_p30/epoch_030
+
+[4] CNN baseline reuse CSV: results/animals/cnn_ratio_results_baseline.csv
+
+[4b] CNN label-noise reuse CSV: results/animals/cnn_ratio_results_label_noise_p30.csv
+
+[5] FID/KID reuse: results/animals/metrics/metrics_label_noise_p30.json
+Saved: results/animals/sweeps/label_noise_sweep.csv
+  dataset_key  ...                                cnn_csv_label_noise
+0     animals  ...  results/animals/cnn_ratio_results_label_noise_...
+1     animals  ...  results/animals/cnn_ratio_results_label_noise_...
+2     animals  ...  results/animals/cnn_ratio_results_label_noise_...
+3     animals  ...  results/animals/cnn_ratio_results_label_noise_...
+
+[4 rows x 15 columns]
