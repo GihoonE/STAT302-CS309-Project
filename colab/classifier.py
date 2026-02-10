@@ -10,17 +10,17 @@ from tensorflow import keras
 from tensorflow.keras import layers
 
 
-# Default ratio list: 100% orig down to 50% orig + 50% cGAN
 DEFAULT_RATIOS = [1.0, 0.9, 0.8, 0.7, 0.6, 0.5]
 
 
 def build_effnet_classifier(img_size=(224, 224), num_classes=15, dropout=0.3):
-    """EfficientNetB0 classifier with augmentation (RandomFlip, Rotation, Zoom). Returns (model, base)."""
     inputs = keras.Input(shape=img_size + (3,))
 
     x = layers.RandomFlip("horizontal")(inputs)
     x = layers.RandomRotation(0.05)(x)
     x = layers.RandomZoom(0.10)(x)
+
+    # EfficientNet preprocess expects float input; typically works well with 0..255 float
     x = tf.keras.applications.efficientnet.preprocess_input(x)
 
     base = tf.keras.applications.EfficientNetB0(
@@ -39,9 +39,25 @@ def build_effnet_classifier(img_size=(224, 224), num_classes=15, dropout=0.3):
     return model, base
 
 
+def _force_float32_255(ds):
+    """
+    Make (x,y) -> (float32 image in 0..255, int32 label)
+    - if x is uint8: cast to float32 (values stay 0..255)
+    - if x is float32 but in 0..1: scale up to 0..255
+    """
+    def _fix(x, y):
+        x = tf.cast(x, tf.float32)
+        # if looks like 0..1, scale to 0..255
+        x = tf.cond(tf.reduce_max(x) <= 1.5, lambda: x * 255.0, lambda: x)
+        y = tf.cast(y, tf.int32)
+        return x, y
+
+    return ds.map(_fix, num_parallel_calls=tf.data.AUTOTUNE)
+
+
 def _make_fake_ds(fake_folder, *, img_size=(224, 224), batch_size=32, shuffle=True, seed=42):
     """Load fake image folder (with class subdirs) as (images, labels) dataset."""
-    return tf.keras.utils.image_dataset_from_directory(
+    ds = tf.keras.utils.image_dataset_from_directory(
         str(fake_folder),
         image_size=img_size,
         batch_size=batch_size,
@@ -49,7 +65,9 @@ def _make_fake_ds(fake_folder, *, img_size=(224, 224), batch_size=32, shuffle=Tr
         seed=seed,
         labels="inferred",
         label_mode="int",
-    ).prefetch(tf.data.AUTOTUNE)
+    )
+    ds = _force_float32_255(ds)
+    return ds.prefetch(tf.data.AUTOTUNE)
 
 
 def make_mixed_train_ds(
@@ -64,29 +82,21 @@ def make_mixed_train_ds(
 ):
     """
     Build training dataset: orig_ratio from original, (1 - orig_ratio) from fake.
-    - orig_ratio=1.0: return original_train_ds (no fake).
-    - orig_ratio<1.0: stream from sample_from_datasets([original, fake], weights=[orig_ratio, 1-orig_ratio]).
-    When using mixed stream, you must pass steps_per_epoch to model.fit().
     """
+    # ✅ ALWAYS force original to float32 (even for 100% original)
+    original_train_ds2 = _force_float32_255(original_train_ds).prefetch(tf.data.AUTOTUNE)
+
     if orig_ratio >= 1.0:
-        return original_train_ds, None  # no steps_per_epoch needed for finite ds
+        return original_train_ds2, None
 
-    fake_ds = _make_fake_ds(fake_folder, img_size=img_size, batch_size=batch_size, shuffle=True, seed=seed)
-    
-    def _force_float32(ds):
-        return ds.map(
-            lambda x, y: (tf.cast(x, tf.float32), tf.cast(y, tf.int32)),
-            num_parallel_calls=tf.data.AUTOTUNE
-        )
+    fake_ds2 = _make_fake_ds(fake_folder, img_size=img_size, batch_size=batch_size, shuffle=True, seed=seed)
 
-    original_train_ds2 = _force_float32(original_train_ds)
-    fake_ds2 = _force_float32(fake_ds)
-    
     mixed = tf.data.Dataset.sample_from_datasets(
-        [original_train_ds.repeat(), fake_ds.repeat()],
+        [original_train_ds2.repeat(), fake_ds2.repeat()],
         weights=[orig_ratio, 1.0 - orig_ratio],
         seed=seed,
-    )
+    ).prefetch(tf.data.AUTOTUNE)
+
     return mixed, steps_per_epoch
 
 
@@ -104,10 +114,6 @@ def train_and_evaluate(
     fine_tune_layers=40,
     verbose=1,
 ):
-    """
-    Train EfficientNetB0 (stage1: freeze backbone, stage2: fine-tune last layers) and return test accuracy.
-    If train_ds is infinite (mixed), steps_per_epoch must be provided.
-    """
     model, base = build_effnet_classifier(img_size=img_size, num_classes=num_classes, dropout=dropout)
 
     model.compile(
@@ -140,6 +146,7 @@ def train_and_evaluate(
     base.trainable = True
     for layer in base.layers[:-fine_tune_layers]:
         layer.trainable = False
+
     model.compile(
         optimizer=keras.optimizers.Adam(1e-4),
         loss="sparse_categorical_crossentropy",
@@ -169,17 +176,16 @@ def run_ratio_experiments(
     out_csv=None,
     verbose=1,
 ):
-    """
-    Run CNN classification for each orig/cGAN ratio.
-    ratios: e.g. [1.0, 0.9, 0.8, 0.7, 0.6, 0.5] = 100% orig, 90%+10% cGAN, ...
-    Returns list of (orig_ratio, test_accuracy). Optionally appends results to out_csv.
-    """
     if ratios is None:
         ratios = DEFAULT_RATIOS
 
     num_classes = len(class_names)
     fake_folder = Path(fake_folder)
     results = []
+
+    # ✅ ALSO force val/test to float32 0..255
+    val_ds2 = _force_float32_255(val_ds).prefetch(tf.data.AUTOTUNE)
+    test_ds2 = _force_float32_255(test_ds).prefetch(tf.data.AUTOTUNE)
 
     for orig_ratio in ratios:
         if verbose:
@@ -197,8 +203,8 @@ def run_ratio_experiments(
 
         test_acc = train_and_evaluate(
             train_ds,
-            val_ds,
-            test_ds,
+            val_ds2,
+            test_ds2,
             num_classes,
             img_size=img_size,
             steps_per_epoch=steps,
@@ -206,6 +212,7 @@ def run_ratio_experiments(
             epochs_stage2=epochs_stage2,
             verbose=verbose,
         )
+
         results.append((orig_ratio, test_acc))
         if verbose:
             print(f"  Test accuracy: {test_acc:.4f}")
