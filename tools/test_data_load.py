@@ -8,8 +8,8 @@ Dataset download + load sanity check.
 import argparse
 import tensorflow as tf
 
-from colab.datasets_config import DATASETS
-from colab.data_prep import prepare_ds
+from experiment_part23.datasets_config import DATASETS
+from experiment_part23.data_prep import prepare_ds
 
 
 def _peek_one_batch(ds):

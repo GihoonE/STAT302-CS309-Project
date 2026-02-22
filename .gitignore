@@ -1,5 +1,7 @@
+.DS_Store
 
 # datasets
+experiment_part1/data/
 test/data/
 *.tar.gz
 cifar-10-python.tar.gz

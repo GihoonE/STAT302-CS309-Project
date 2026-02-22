@@ -3,7 +3,7 @@ import argparse
 from pathlib import Path
 import pandas as pd
 
-from colab.run_pipeline import run_pipeline_one
+from experiment_part23.run_pipeline import run_pipeline_one
 
 
 def _parse_floats_csv(s: str):

@@ -1,6 +1,20 @@
 # Conditional GAN for Synthetic Data: Evaluation Framework
 
-A modular pipeline for training and evaluating conditional GANs (cGANs) across multiple datasets. It covers data preparation, cGAN training (with optional label noise), downstream classification with mixed real/synthetic data, and quality metrics (FID/KID).
+**STATS302 / COMPSCI309 Group Project**  
+**Authors:** Gihun Lee, Sam Akhmedjonov, and Sattor Khamroev
+
+**Abstract.** We provide a modular, reproducible codebase for training and evaluating conditional GANs (cGANs) on image data. **Experiment Part 1** (CIFAR-10) implements cGAN ablation studies (conditioning: concat vs projection; loss: BCE vs hinge) with PyTorch and optional FID/KID. **Experiment Part 2–3** (TensorFlow) implement a multi-dataset pipeline: data preparation, cGAN training with optional label noise, downstream classification with mixed real/synthetic data, and FID/KID evaluation. The repository is organized for clarity and NeurIPS-style code submission.
+
+---
+
+## Code structure (by experiment)
+
+| Part | Folder | Description |
+|------|--------|-------------|
+| **Part 1** | `experiment_part1/` | CIFAR-10 cGAN ablation (PyTorch): concat vs projection, BCE vs hinge; outputs in `outputs_cgan_ablation_jpg/`. |
+| **Part 2–3** | `experiment_part23/` | Multi-dataset pipeline (TensorFlow): data prep, cGAN training, label-noise experiments, downstream mixing, FID/KID. |
+| **CLI** | `tools/` | Entry points for Part 2–3: `run_pipeline.py`, `test_data_load.py`. |
+| **Outputs** | `results/`, `logs/` | Part 2–3 results (fake samples, CSVs, metrics) and run logs. |
 
 ---
 
@@ -8,20 +22,28 @@ A modular pipeline for training and evaluating conditional GANs (cGANs) across m
 
 ```
 STAT302-CS309-Project/
-├── colab/                    # Main library and pipeline
+├── experiment_part1/         # Experiment Part 1: CIFAR-10 cGAN ablation (PyTorch)
+│   ├── test.py               # Main script: ablation (concat/proj, BCE/hinge)
+│   ├── relabel_grids.py      # Add class labels to sample grids
+│   ├── data/                 # CIFAR-10 data (gitignored; download separately)
+│   ├── outputs_cgan_ablation_jpg/
+│   └── *.log
+├── experiment_part23/        # Experiment Part 2–3: multi-dataset pipeline (TensorFlow)
 │   ├── __init__.py
 │   ├── datasets_config.py    # Dataset keys, slugs, formats
 │   ├── data_prep.py          # prepare_ds(): train/val/test loaders
 │   ├── cgan.py               # Generator, Discriminator, train_cgan, label noise
-│   ├── classifier.py        # EfficientNetB0 + run_ratio_experiments (mixing)
+│   ├── classifier.py         # EfficientNetB0 + run_ratio_experiments (mixing)
 │   ├── fid_kid.py            # FID/KID evaluation (Inception V3)
 │   ├── run_pipeline.py       # run_pipeline_one(): full pipeline entrypoint
 │   ├── test_multi_datasets.py
-│   └── README.md             # Colab-focused usage details
+│   └── README.md             # Usage details
 ├── tools/
-│   ├── run_pipeline.py       # CLI: single run or label-noise sweep
-│   └── test_data_load.py    # Sanity check dataset download and loading
-├── results/                  # Per-dataset outputs (fake_samples, CSVs, metrics)
+│   ├── run_pipeline.py       # CLI: single run or label-noise sweep (Part 2–3)
+│   ├── test_data_load.py     # Sanity check dataset download and loading
+│   ├── grid.py
+│   └── grid_epoch.py
+├── results/                  # Part 2–3: per-dataset outputs
 │   └── {dataset_key}/
 │       ├── fake_samples/baseline/epoch_*/
 │       ├── fake_samples/label_noise_p{XX}/epoch_*
@@ -47,9 +69,27 @@ pip install -r requirements.txt
 
 Core dependencies include `tensorflow`, `kagglehub`, `scipy`, `numpy`. For CLI sweep and CSV handling, `pandas` is used by `tools/run_pipeline.py`.
 
+- **Part 1 (experiment_part1):** Uses PyTorch and (optionally) `torchmetrics` for FID/KID. CIFAR-10 data must be placed under `experiment_part1/data/` (e.g. `cifar-10-batches-py/`). See `experiment_part1/README.md` for run commands.
+- **Part 2–3 (experiment_part23):** TensorFlow + kagglehub (except MNIST, which uses Keras built-in). Run from repo root so that the `experiment_part23` package is importable.
+
 ---
 
-## Training pipeline overview
+## Running the experiments
+
+**Experiment Part 1 (CIFAR-10 ablation).** From repo root:
+
+```bash
+cd experiment_part1
+python test.py
+```
+
+Outputs go to `experiment_part1/outputs_cgan_ablation_jpg/`. To add labels to saved grids: `python relabel_grids.py`.
+
+**Experiment Part 2–3 (multi-dataset pipeline).** From repo root, see *Example commands* below for `tools/run_pipeline.py` and the Python API `run_pipeline_one`.
+
+---
+
+## Training pipeline overview (Part 2–3)
 
 The pipeline has two main sides:
 
@@ -67,7 +107,7 @@ End-to-end flow:
 
 ## (1) Model-side experiments
 
-- **Architecture:** Conditional Generator and Discriminator in `colab/cgan.py`.
+- **Architecture:** Conditional Generator and Discriminator in `experiment_part23/cgan.py`.
   - **Conditioning:** Label conditioning is implemented as **concatenation**: embedding → flatten → concat with noise (G) or spatial map concat with image (D).
   - **Loss:** **BCE** (Binary Cross-Entropy) with label smoothing (0.9) on real logits.
 - **Training:** Adam (lr=2e-4, β₁=0.5), 64×64 RGB images in [-1,1]. Optional **label noise** (`label_noise_p`): with probability `p`, the label is replaced by a random class during cGAN training.
@@ -89,7 +129,7 @@ Example (conceptual) for a single run with hinge and projection would require ca
 
 ## (2) Data-side experiments
 
-- **Dataset formats** (`colab/data_prep.py`): `imagefolder_supervised_train_test`, `imagefolder_train_labeled_test_unlabeled`, `mnist_keras`, `mnist_idx`, `mnist_csv`. Configured in `colab/datasets_config.py` (e.g. `sports_ball`, `animals`, `mnist`).
+- **Dataset formats** (`experiment_part23/data_prep.py`): `imagefolder_supervised_train_test`, `imagefolder_train_labeled_test_unlabeled`, `mnist_keras`, `mnist_idx`, `mnist_csv`. Configured in `experiment_part23/datasets_config.py` (e.g. `sports_ball`, `animals`, `mnist`).
 - **Label-noise experiments:** During cGAN training, labels are corrupted with probability `label_noise_p`. To run a **single** setting use `run_pipeline_one(..., label_noise_p=0.2)`. To run a **sweep** over multiple values (e.g. 0.0, 0.1, 0.2, 0.3), use the CLI (see below).
 - **Downstream mixing:** After generating fakes, the pipeline runs **ratio experiments**: train an EfficientNetB0 classifier on mixed data (original + synthetic) at ratios such as 1.0, 0.8, 0.7, 0.6, 0.5 (configurable). Results are saved per fake source (baseline vs label-noise) in CSVs.
 
@@ -101,7 +141,7 @@ Example (conceptual) for a single run with hinge and projection would require ca
 - **KID (Kernel Inception Distance):** Polynomial kernel MMD (mean ± std over subsets). Lower is better.
 - **Test accuracy:** For each mixing ratio, the classifier is trained and evaluated on the test set; accuracy is reported and (optionally) one ratio is picked for sweep CSV (e.g. 80% original / 20% synthetic).
 
-FID/KID are computed in `colab/fid_kid.py`; test accuracy comes from `colab/classifier.py` and is aggregated in `tools/run_pipeline.py` for the sweep CSV.
+FID/KID are computed in `experiment_part23/fid_kid.py`; test accuracy comes from `experiment_part23/classifier.py` and is aggregated in `tools/run_pipeline.py` for the sweep CSV.
 
 ---
 
@@ -142,7 +182,7 @@ Output: `results/<dataset_key>/sweeps/label_noise_sweep.csv` with columns such a
 **Python API (one full pipeline run):**
 
 ```python
-from colab.run_pipeline import run_pipeline_one
+from experiment_part23.run_pipeline import run_pipeline_one
 
 result = run_pipeline_one(
     "mnist",  # or "sports_ball", "animals"
@@ -159,9 +199,9 @@ result = run_pipeline_one(
 **Downstream mixing only (if you already have a fake folder):**
 
 ```python
-from colab.classifier import run_ratio_experiments
-from colab.data_prep import prepare_ds
-from colab.datasets_config import DATASETS
+from experiment_part23.classifier import run_ratio_experiments
+from experiment_part23.data_prep import prepare_ds
+from experiment_part23.datasets_config import DATASETS
 
 cfg = DATASETS["mnist"]
 train_ds, val_ds, test_ds, class_names, data_dir, _ = prepare_ds(
@@ -178,7 +218,7 @@ results = run_ratio_experiments(
 **FID/KID only:**
 
 ```python
-from colab.fid_kid import eval_folder_vs_real, real_ds_to_images_only
+from experiment_part23.fid_kid import eval_folder_vs_real, real_ds_to_images_only
 
 real_images_ds = real_ds_to_images_only(test_ds)
 fid, kid_mean, kid_std = eval_folder_vs_real(
@@ -193,8 +233,8 @@ fid, kid_mean, kid_std = eval_folder_vs_real(
 ## Reproducing the ablation study (concat vs projection, BCE vs hinge)
 
 1. **Baseline (current):** Run the pipeline as-is; conditioning is concat and loss is BCE.
-2. **Projection:** In `colab/cgan.py`, add a projection-based conditioning path in `build_generator()` and `build_discriminator()` (see Model-side section), and optionally a keyword argument to switch between concat and projection. Run the same pipeline with the projection option.
-3. **Hinge:** In `colab/cgan.py`, implement hinge loss in `d_loss_fn`/`g_loss_fn` and a `loss_type` (or global) switch. Call `train_cgan(..., loss_type="hinge")` and run the pipeline again.
+2. **Projection:** In `experiment_part23/cgan.py`, add a projection-based conditioning path in `build_generator()` and `build_discriminator()` (see Model-side section), and optionally a keyword argument to switch between concat and projection. Run the same pipeline with the projection option.
+3. **Hinge:** In `experiment_part23/cgan.py`, implement hinge loss in `d_loss_fn`/`g_loss_fn` and a `loss_type` (or global) switch. Call `train_cgan(..., loss_type="hinge")` and run the pipeline again.
 4. **Combinations:** Run (concat, BCE), (concat, hinge), (projection, BCE), (projection, hinge); compare FID/KID and downstream accuracy at the same mixing ratios and label-noise settings.
 
 All other steps (data, sampling, CNN ratios, FID/KID) remain unchanged; only the cGAN build and loss in `cgan.py` are modified.
@@ -214,7 +254,7 @@ All other steps (data, sampling, CNN ratios, FID/KID) remain unchanged; only the
 
 ---
 
-## Datasets (from `colab/datasets_config.py`)
+## Datasets (from `experiment_part23/datasets_config.py`)
 
 | Key | Name | Format | Notes |
 |-----|------|--------|--------|
@@ -222,4 +262,4 @@ All other steps (data, sampling, CNN ratios, FID/KID) remain unchanged; only the
 | `animals` | Cats-and-Dogs-Breed | imagefolder_train_labeled_test_unlabeled | train/val/inf structure |
 | `mnist` | MNIST | mnist_keras | Keras built-in; no Kaggle |
 
-For more details, Colab-specific usage, and module reference, see `colab/README.md`.
+For more details and module reference, see `experiment_part23/README.md`.
