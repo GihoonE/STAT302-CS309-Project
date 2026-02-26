@@ -5,9 +5,9 @@ from PIL import Image, ImageDraw
 # -----------------------------
 # Config
 # -----------------------------
-PROJECT_ROOT = os.path.dirname(os.path.dirname(__file__))  # tools/.. = project root
-RESULTS_ROOT = os.path.join(PROJECT_ROOT, "results")
-OUT_DIR = os.path.join(PROJECT_ROOT, "images", "grids")
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # tools/.. = project root
+RESULTS_ROOT = os.path.join(PROJECT_ROOT, "outputs", "part23")
+OUT_DIR = os.path.join(PROJECT_ROOT, "outputs", "grids")
 os.makedirs(OUT_DIR, exist_ok=True)
 
 CONFIGS = [

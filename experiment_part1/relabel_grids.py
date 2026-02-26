@@ -4,7 +4,8 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import matplotlib.image as mpimg
 
-OUTDIR = "./outputs_cgan_ablation_jpg"
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUTDIR = os.path.join(_REPO_ROOT, "outputs", "part1")
 CIFAR10_NAMES = ["airplane","automobile","bird","cat","deer",
                  "dog","frog","horse","ship","truck"]
 

@@ -46,9 +46,10 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 print("device:", device)
 
 # -----------------------------
-# Output directory (jpg only)
+# Output directory (unified: outputs/part1)
 # -----------------------------
-OUTDIR = "./outputs_cgan_ablation_jpg"
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUTDIR = os.path.join(_REPO_ROOT, "outputs", "part1")
 os.makedirs(OUTDIR, exist_ok=True)
 
 # -----------------------------

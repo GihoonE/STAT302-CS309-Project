@@ -108,7 +108,7 @@ def _pick_acc_at_ratio(cnn_results, target_ratio=0.8):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--dataset_key", required=True, choices=["sports_ball", "animals", "mnist"])
-    ap.add_argument("--out_root", default="results")
+    ap.add_argument("--out_root", default="outputs/part23")
 
     # pipeline knobs
     ap.add_argument("--cgan_epochs", type=int, default=30)

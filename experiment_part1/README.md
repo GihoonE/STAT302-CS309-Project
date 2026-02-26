@@ -4,10 +4,9 @@ This folder contains **Experiment Part 1**: CIFAR-10 conditional GAN ablation st
 
 ## Contents
 
-- **`test.py`** — Main script: trains cGAN variants, saves samples and (optionally) computes FID/KID. Headless-safe; all figures saved as JPG under `./outputs_cgan_ablation_jpg/`.
-- **`relabel_grids.py`** — Adds class labels to saved sample grids (CIFAR-10 class names and sample index).
+- **`test.py`** — Main script: trains cGAN variants, saves samples and (optionally) computes FID/KID. Headless-safe; all figures saved as JPG under **`outputs/part1/`** (unified output root).
+- **`relabel_grids.py`** — Adds class labels to saved sample grids (CIFAR-10 class names and sample index). Reads from `outputs/part1/`.
 - **`data/`** — Place CIFAR-10 data here (e.g. `cifar-10-batches-py/`). This directory is gitignored.
-- **`outputs_cgan_ablation_jpg/`** — Generated samples and logs from `test.py`.
 - **`*.log`** — Run logs.
 
 ## Requirements
@@ -39,7 +38,7 @@ python relabel_grids.py
 
 ## Outputs
 
-- Sample images per run (concat/proj × BCE/hinge) in `outputs_cgan_ablation_jpg/`.
+- Sample images per run (concat/proj × BCE/hinge) in **`outputs/part1/`** (at repository root).
 - FID/KID values printed if `torchmetrics` is available.
 
 For the overall project structure and Part 2–3 (multi-dataset pipeline), see the main [README.md](../README.md) in the repository root.

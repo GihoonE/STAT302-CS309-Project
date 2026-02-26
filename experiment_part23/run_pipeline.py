@@ -97,7 +97,7 @@ def _load_cnn_results_from_csv(csv_path: Path):
 
 def run_pipeline_one(
     dataset_key,
-    out_root="results",
+    out_root="outputs/part23",
     *,
     # cGAN
     cgan_epochs=CGAN_EPOCHS,
@@ -109,7 +109,7 @@ def run_pipeline_one(
     cnn_epochs_stage2=EPOCHS_STAGE2,
     # Eval
     run_fid_kid=True,
-    reuse_if_exists=True,   # ✅ NEW
+    reuse_if_exists=True,
     verbose=1,
 ):
     """
