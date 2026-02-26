@@ -1,7 +1,13 @@
 # tools/run_pipeline.py
 import argparse
+import sys
 from pathlib import Path
 import pandas as pd
+
+# 프로젝트 루트를 path에 넣어 experiment_part23 import 가능하게 함
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from experiment_part23.run_pipeline import run_pipeline_one
 
