@@ -5,8 +5,6 @@
 
 **Abstract.** We provide a modular, reproducible codebase for training and evaluating conditional GANs (cGANs) on image data. **Experiment Part 1** (CIFAR-10) implements cGAN ablation studies (conditioning: concat vs projection; loss: BCE vs hinge) with PyTorch and optional FID/KID. **Experiment Part 2–3** (TensorFlow) implement a multi-dataset pipeline: data preparation, cGAN training with optional label noise, downstream classification with mixed real/synthetic data, and FID/KID evaluation. The repository is organized for clarity and NeurIPS-style code submission.
 
--
-
 ## Code structure (by experiment)
 
 | Part | Folder | Description |
